@@ -1,0 +1,183 @@
+---
+title: "Project 2"
+author: "Michael Yan"
+date: "June 25, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Introduction
+The purpose of this project is to familiarise ourselves with the zillow API and understand its components. To familiarise ourselves with this API, we must utilize libraries and functions that will help us accomplish this. We will implement techniques such as reading in data, manipulating data, parsing data, and more to accomplish our goal of estimating certain parameters, namely the Zestimate value of homes. 
+
+We have learned from previous lessons that we can use models to estimate the value of a response, namely the zestimate. We can use simple linear regression, ensemble methods of modeling to help us predict whether or not a specific variable will help us determine the zestimate value. 
+
+#Parsing data
+The function results in an XML format. Understanding functions like `xmlChildren`, and `xmlValue` helps us get an idea of the best way to grab data values, not by position. 
+
+```{r zillow, warning=FALSE, message=FALSE, eval=FALSE}
+
+library(ZillowR)
+library(XML)
+library(readr)
+library(dplyr)
+library(methods)
+
+set.seed(123)
+
+street <- read_csv("Addresses.csv")
+street <- street %>% select(HSE_NBR, STR_NM, STR_SFX_CD, HSE_DIR_CD) %>% transmute(address=paste(HSE_NBR, HSE_DIR_CD, STR_NM, STR_SFX_CD))
+
+zfunction <- function(street, ...) {
+  zdata <- GetDeepSearchResults(address=as.character(street), citystatezip='Los Angeles, CA', zws_id = "X1-ZWz17t0ru4q4gb_38l6u")
+  response <- xmlChildren(xmlChildren(xmlChildren(zdata$response)$results)$result)
+  address <- xmlChildren(response$address)
+  streetName <- xmlValue(address$street)
+  zipcode <- as.numeric(xmlValue(address$zipcode))
+  city <- xmlValue(address$city)
+  
+  useCode <- xmlValue(response$useCode)
+  yearBuilt <- as.numeric(xmlValue(response$yearBuilt))
+  taxyear <- as.numeric(xmlValue(response$taxAssessmentYear))
+  taxAssessment <- as.numeric(xmlValue(response$taxAssessment))
+  
+  lotsize <- as.numeric(xmlValue(response$lotSizeSqFt))
+  finishedsqft <- as.numeric(xmlValue(response$finishedSqFt))
+  baths <- as.numeric(xmlValue(response$bathrooms))
+  bedrooms <- as.numeric(xmlValue(response$bedrooms))
+  value <- xmlChildren(response$zestimate)
+  zestimate <- as.numeric(xmlValue(value$amount))
+  region <- unlist(response$localRealEstate)
+  regionName <- region[["children.region.attributes.name"]]
+  regionType <- region[["children.region.attributes.type"]]
+
+  zDataframe <- cbind(streetName, zipcode, city, useCode, yearBuilt, taxyear,  taxAssessment, lotsize, finishedsqft, baths, bedrooms, zestimate, regionName, regionType)
+  
+  zDataframe1 <- as.data.frame(zDataframe)
+  
+return(zDataframe1)
+}
+```
+
+#Making reproducible data
+We want to make addresses reproducible. As the `GetDeepSearchResults()` only reads in data one at a time, we can make it reproducible by looping over it. This code also ensures that we do not have any null data, which could cause problems if not dealt with. 
+
+```{r sample, warning=FALSE, message=FALSE, eval=FALSE}
+library(ZillowR)
+library(readr)
+set.seed(123)
+zdf <- data.frame("Street Number and Name", "Zipcode", "City", "use Code", "year built", "tax year", "tax assessment value", "lot size", "finished square feet", "bathrooms", "bedrooms", "zestimate", "region name", "region type")
+
+samp <- street[sample(1:1002012, size=400, replace=FALSE), ]
+samp <- data.frame(samp, stringsAsFactors = FALSE)
+
+write_csv(zdf, "C:/Users/xilia/OneDrive/Desktop/ST558-DataScience/Project 2/zillowdata.csv", col_names=FALSE)
+
+for (i in 1:nrow(samp)) {
+  zillowData <- GetDeepSearchResults(address=as.character(samp[i, 1]), citystatezip = 'Los Angeles, CA', zws_id = "X1-ZWz17t0ru4q4gb_38l6u")
+
+message <- zillowData$message$code
+
+if (message=="0"){
+  fulldata <- zfunction(samp[i,1])
+    write_csv(fulldata, "C:/Users/xilia/OneDrive/Desktop/ST558-DataScience/Project 2/zillowdata.csv", append = TRUE)
+  }
+}
+```
+
+#Modeling
+In this section, we will test to see which predictor variables will be best used to estimate the zestimate value. We have variables such as tax assessment year, the year built, the region name, and more, that we can use to predict the zestimate. 
+
+To quantify how close our zestimate is, we can look at the RMSE or the MSE and see how off we are from our prediction to our actual testing dataset. 
+
+```{r data, message=FALSE, warning=FALSE}
+library(readr)
+library(rgl)
+library(caret)
+library(tidyverse)
+library(knitr)
+
+set.seed(123)
+
+zdat <- tbl_df(read_csv("zillowdata.csv")) %>% na.omit()
+zdat <- zdat %>% filter(City=="Los Angeles")
+write_csv(zdat, "C:/Users/xilia/OneDrive/Desktop/ST558-DataScience/Project 2/HouseData.csv", col_names=FALSE)
+zdat$zestimate <- as.numeric(zdat$zestimate)
+
+train <- sample(1:nrow(zdat), size=nrow(zdat)*0.8)
+test <- dplyr::setdiff(1:nrow(zdat), train)
+zDataTrain <- zdat[train, ]
+zDataTest <- zdat[test, ]
+
+#Linear Modeling
+Trainlmfit1 <- lm(zestimate ~ `finished square feet`, data=zDataTrain)
+Trainlmfit2 <- lm(zestimate ~ `year built`, data=zDataTrain)
+Trainlmfit3 <- lm(zestimate ~ `lot size`, data=zDataTrain)
+Trainlmfit4 <- lm(zestimate ~ bedrooms*bathrooms, data=zDataTrain)
+
+Testlmfit1 <- lm(zestimate ~ `finished square feet`, data=zDataTest)
+Testlmfit2 <- lm(zestimate ~ `year built`, data=zDataTest)
+Testlmfit3 <- lm(zestimate ~ `lot size`, data=zDataTest)
+Testlmfit4 <- lm(zestimate ~ bedrooms*bathrooms, data=zDataTest)
+
+compareFitStats <- function(fit1, fit2, fit3, fit4, fit5){
+  require(MuMIn)
+  fitStats <- data.frame(fitStat = c("Adj R Square", "AIC", "AICc", "BIC"),
+  col1 = round(c(summary(fit1)$adj.r.squared, AIC(fit1),
+    MuMIn::AICc(fit1), BIC(fit1)), 3),
+  col2 = round(c(summary(fit2)$adj.r.squared, AIC(fit2),
+    MuMIn::AICc(fit2), BIC(fit2)), 3),
+  col3 = round(c(summary(fit3)$adj.r.squared, AIC(fit3),
+    MuMIn::AICc(fit3), BIC(fit3)), 3),
+  col4 = round(c(summary(fit4)$adj.r.squared, AIC(fit4),
+    MuMIn::AICc(fit4), BIC(fit4)), 3))
+  calls <- as.list(match.call())
+  calls[[1]] <- NULL
+  names(fitStats)[2:5] <- unlist(calls)
+fitStats
+}
+#Comparing our linear models for the test set and the training data set. 
+#Using AIC, R-Squared to test for response. 
+TrainStats <- knitr::kable(compareFitStats(Trainlmfit1, Trainlmfit2, Trainlmfit3, Trainlmfit4), caption="Linear Model Comparing fit stats")
+TrainStats
+
+#Ensemble Modeling - using a random forest model. 
+trctrl <- trainControl(method = "repeatedcv", number=10, repeats=3)
+rforest <- train(zestimate ~ `finished square feet`+`year built`+`lot size`+`tax assessment value`,
+               method='rf',
+               trControl=trctrl,
+               data=zDataTrain,
+               preProcess=c("center", "scale"),
+               verbose=FALSE)
+
+#predicting the model of rforest along with the testing dataset. 
+rforest_pred <- predict(rforest, newdata = select(zDataTest, `finished square feet`, `year built`, `lot size`, `tax assessment value`))
+
+#Comparison of zestimate in our prediciton and our testing data. 
+predvstest <- head(cbind(rforest_pred, zDataTest$zestimate), n=10)
+predvstest
+
+#RMSE tests how good prediction error.
+#RMSE measures how much error there is between a predicted dataset and a 
+#testing dataset. 
+
+RMSE <- sqrt(mean((rforest_pred-zDataTest$zestimate)^2))
+RMSE
+
+```
+
+#Conclusions
+In our data, we used two models to predict our zestimate: **Random Forests** as well as **linear regression models**. For our rf model, we are assuming that our data will be trained according to cross validation and we have standardized our data. We are using the random forest model for several reasons, notably due to:
+
+1. Not having to use all of the predictors, making it flexible. 
+2. Choosing which predictors to use
+3. By having a subset of predictors, we can be sure that if there is a good predictor or two, then, it will not dominate the fits. We can then see how each predictor would affect our prediction estimate. 
+
+I had decided to choose the linear model to forecast which variables would best predict the zestimate. I had used a linear model for the `finished square footage` variable, which happened to have a high correlation (displayed in the Adj R Square) with the zestimate. Although this implies a strong relationship, it is crucial to know that although there is correlation, this does not mean causation. From these linear models, I was also able to determine individually which variables were better predictors than others, also leading me to have a subset of variables for my ensemble modeling. 
+
+#Real life implications
+In real life, we would not want to be dealing with categorical variables in predicting our zestimate. Such as the **useCode** variable to determine the zestimate is difficult since it does not give an accurate description of the price. The usecode will attempt to use whether or not a house is a townhouse or singlefamily house, however this is a poor predictor as it can fluctuate between regions as well as zipcodes. A better predictor would include combinations of numeric variables, as this gives us a closer predictor. Excluding bedrooms/bathrooms, we can look at say, the lotsize, finished square footage, and the year built to see our estimates, as these variables are more unique. Thus in real life, we would predict the zestimate based on a combination of variables such as lotsize, finished sq. footage, and year built. 
+
+
