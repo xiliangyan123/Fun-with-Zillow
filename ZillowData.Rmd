@@ -76,7 +76,7 @@ samp <- data.frame(samp, stringsAsFactors = FALSE)
 write_csv(zdf, "C:/Users/xilia/OneDrive/Desktop/ST558-DataScience/Project 2/zillowdata.csv", col_names=FALSE)
 
 for (i in 1:nrow(samp)) {
-  zillowData <- GetDeepSearchResults(address=as.character(samp[i, 1]), citystatezip = 'Los Angeles, CA', zws_id = "X1-ZWz17t0ru4q4gb_38l6u")
+  zillowData <- GetDeepSearchResults(address=as.character(samp[i, 1]), citystatezip = 'Los Angeles, CA', zws_id = "Insert your Zillowid")
 
 message <- zillowData$message$code
 
