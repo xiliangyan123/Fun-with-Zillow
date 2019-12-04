@@ -27,11 +27,11 @@ library(methods)
 
 set.seed(123)
 
-street <- read_csv("Addresses.csv")
+street <- read_csv("Addresses.csv") # Working on making file size smaller
 street <- street %>% select(HSE_NBR, STR_NM, STR_SFX_CD, HSE_DIR_CD) %>% transmute(address=paste(HSE_NBR, HSE_DIR_CD, STR_NM, STR_SFX_CD))
 
 zfunction <- function(street, ...) {
-  zdata <- GetDeepSearchResults(address=as.character(street), citystatezip='Los Angeles, CA', zws_id = "X1-ZWz17t0ru4q4gb_38l6u")
+  zdata <- GetDeepSearchResults(address=as.character(street), citystatezip='Los Angeles, CA', zws_id = "Insert your own ZillowID from the ZillowAPI")
   response <- xmlChildren(xmlChildren(xmlChildren(zdata$response)$results)$result)
   address <- xmlChildren(response$address)
   streetName <- xmlValue(address$street)
@@ -73,7 +73,7 @@ zdf <- data.frame("Street Number and Name", "Zipcode", "City", "use Code", "year
 samp <- street[sample(1:1002012, size=400, replace=FALSE), ]
 samp <- data.frame(samp, stringsAsFactors = FALSE)
 
-write_csv(zdf, "C:/Users/xilia/OneDrive/Desktop/ST558-DataScience/Project 2/zillowdata.csv", col_names=FALSE)
+write_csv(zdf, "Insert your own file destination", col_names=FALSE)
 
 for (i in 1:nrow(samp)) {
   zillowData <- GetDeepSearchResults(address=as.character(samp[i, 1]), citystatezip = 'Los Angeles, CA', zws_id = "Insert your Zillowid")
@@ -82,7 +82,7 @@ message <- zillowData$message$code
 
 if (message=="0"){
   fulldata <- zfunction(samp[i,1])
-    write_csv(fulldata, "C:/Users/xilia/OneDrive/Desktop/ST558-DataScience/Project 2/zillowdata.csv", append = TRUE)
+    write_csv(fulldata, "Insert your own file destination", append = TRUE)
   }
 }
 ```
@@ -103,7 +103,7 @@ set.seed(123)
 
 zdat <- tbl_df(read_csv("zillowdata.csv")) %>% na.omit()
 zdat <- zdat %>% filter(City=="Los Angeles")
-write_csv(zdat, "C:/Users/xilia/OneDrive/Desktop/ST558-DataScience/Project 2/HouseData.csv", col_names=FALSE)
+write_csv(zdat, "Insert your own file destination", col_names=FALSE)
 zdat$zestimate <- as.numeric(zdat$zestimate)
 
 train <- sample(1:nrow(zdat), size=nrow(zdat)*0.8)
